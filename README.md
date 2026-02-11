@@ -3,179 +3,179 @@
 </p>
 
 <p align="center">
-  My personal Claude assistant that runs securely in containers. Lightweight and built to be understood and customized for your own needs.
+  我的个人 Claude 助手，安全地运行在容器中。轻量级，易于理解和定制。
 </p>
 
 <p align="center">
   <a href="https://discord.gg/VGWXrf8x"><img src="https://img.shields.io/discord/1470188214710046894?label=Discord&logo=discord&v=2" alt="Discord"></a>
 </p>
 
-**New:** First AI assistant to support [Agent Swarms](https://code.claude.com/docs/en/agent-teams). Spin up teams of agents that collaborate in your chat.
+**新功能：** 首个支持 [Agent Swarms](https://code.claude.com/docs/en/agent-teams) 的 AI 助手。在聊天中启动协作的代理团队。
 
-## Why I Built This
+## 为什么构建这个项目
 
-[OpenClaw](https://github.com/openclaw/openclaw) is an impressive project with a great vision. But I can't sleep well running software I don't understand with access to my life. OpenClaw has 52+ modules, 8 config management files, 45+ dependencies, and abstractions for 15 channel providers. Security is application-level (allowlists, pairing codes) rather than OS isolation. Everything runs in one Node process with shared memory.
+[OpenClaw](https://github.com/openclaw/openclaw) 是一个令人印象深刻的项目，愿景很好。但我无法安心运行一个我不理解的软件来访问我的生活。OpenClaw 有 52+ 个模块、8 个配置管理文件、45+ 个依赖项，以及 15 个频道提供商的抽象。安全性是应用层级的（白名单、配对码），而不是操作系统隔离。所有内容都在一个共享内存的 Node 进程中运行。
 
-NanoClaw gives you the same core functionality in a codebase you can understand in 8 minutes. One process. A handful of files. Agents run in actual Linux containers with filesystem isolation, not behind permission checks.
+NanoClaw 在一个你可以在 8 分钟内理解的代码库中提供相同的核心功能。一个进程。少量文件。代理运行在真正的 Linux 容器中，具有文件系统隔离，而不是权限检查。
 
-## Quick Start
+## 快速开始
 
 ```bash
-git clone https://github.com/gavrielc/nanoclaw.git
+git clone https://github.com/zkl2333/nanoclaw.git
 cd nanoclaw
 claude
 ```
 
-Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup, service configuration.
+然后运行 `/setup`。Claude Code 会处理一切：依赖项、认证、容器设置、服务配置。
 
-## Philosophy
+## 设计理念
 
-**Small enough to understand.** One process, a few source files. No microservices, no message queues, no abstraction layers. Have Claude Code walk you through it.
+**足够小，易于理解。** 一个进程，几个源文件。没有微服务，没有消息队列，没有抽象层。让 Claude Code 带你了解它。
 
-**Secure by isolation.** Agents run in Linux containers (Apple Container on macOS, or Docker). They can only see what's explicitly mounted. Bash access is safe because commands run inside the container, not on your host.
+**通过隔离保证安全。** 代理运行在 Linux 容器中（macOS 上使用 Apple Container，或 Docker）。它们只能看到明确挂载的内容。Bash 访问是安全的，因为命令在容器内运行，而不是在主机上。
 
-**Built for one user.** This isn't a framework. It's working software that fits my exact needs. You fork it and have Claude Code make it match your exact needs.
+**为单用户构建。** 这不是一个框架。这是符合我确切需求的工作软件。你 fork 它，让 Claude Code 使其符合你的确切需求。
 
-**Customization = code changes.** No configuration sprawl. Want different behavior? Modify the code. The codebase is small enough that this is safe.
+**定制 = 代码更改。** 没有配置膨胀。想要不同的行为？修改代码。代码库足够小，这样做是安全的。
 
-**AI-native.** No installation wizard; Claude Code guides setup. No monitoring dashboard; ask Claude what's happening. No debugging tools; describe the problem, Claude fixes it.
+**AI 原生。** 没有安装向导；Claude Code 指导设置。没有监控仪表板；询问 Claude 发生了什么。没有调试工具；描述问题，Claude 修复它。
 
-**Skills over features.** Contributors shouldn't add features (e.g. support for Telegram) to the codebase. Instead, they contribute [claude code skills](https://code.claude.com/docs/en/skills) like `/add-telegram` that transform your fork. You end up with clean code that does exactly what you need.
+**技能优于功能。** 贡献者不应该向代码库添加功能（例如支持 Telegram）。相反，他们贡献 [claude code skills](https://code.claude.com/docs/en/skills)，如 `/add-telegram`，来转换你的 fork。你最终得到的是干净的代码，完全符合你的需求。
 
-**Best harness, best model.** This runs on Claude Agent SDK, which means you're running Claude Code directly. The harness matters. A bad harness makes even smart models seem dumb, a good harness gives them superpowers. Claude Code is (IMO) the best harness available.
+**最佳工具，最佳模型。** 这运行在 Claude Agent SDK 上，这意味着你直接运行 Claude Code。工具很重要。糟糕的工具让聪明的模型看起来很笨，好的工具赋予它们超能力。Claude Code 是（我认为）最好的工具。
 
-## What It Supports
+## 支持的功能
 
-- **WhatsApp I/O** - Message Claude from your phone
-- **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted
-- **Main channel** - Your private channel (self-chat) for admin control; every other group is completely isolated
-- **Scheduled tasks** - Recurring jobs that run Claude and can message you back
-- **Web access** - Search and fetch content
-- **Container isolation** - Agents sandboxed in Apple Container (macOS) or Docker (macOS/Linux)
-- **Agent Swarms** - Spin up teams of specialized agents that collaborate on complex tasks (first personal AI assistant to support this)
-- **Optional integrations** - Add Gmail (`/add-gmail`) and more via skills
+- **Telegram 输入输出** - 从手机向 Claude 发送消息
+- **隔离的群组上下文** - 每个群组都有自己的 `CLAUDE.md` 内存、隔离的文件系统，并在自己的容器沙箱中运行，只挂载该文件系统
+- **主频道** - 你的私人频道（自聊）用于管理控制；其他每个群组都是完全隔离的
+- **定时任务** - 运行 Claude 并可以向你发送消息的定期作业
+- **Web 访问** - 搜索和获取内容
+- **容器隔离** - 代理在 Apple Container（macOS）或 Docker（macOS/Linux）中沙箱化
+- **Agent Swarms** - 启动专门的代理团队，协作处理复杂任务（首个支持此功能的个人 AI 助手）
+- **可选集成** - 通过技能添加 Gmail（`/add-gmail`）等
 
-## Usage
+## 使用方法
 
-Talk to your assistant with the trigger word (default: `@Andy`):
+使用触发词（默认：`@Finch`）与你的助手对话：
 
 ```
-@Andy send an overview of the sales pipeline every weekday morning at 9am (has access to my Obsidian vault folder)
-@Andy review the git history for the past week each Friday and update the README if there's drift
-@Andy every Monday at 8am, compile news on AI developments from Hacker News and TechCrunch and message me a briefing
+@Finch 每个工作日早上 9 点发送销售管道概览（可以访问我的 Obsidian vault 文件夹）
+@Finch 每周五查看过去一周的 git 历史，如果有偏差则更新 README
+@Finch 每周一早上 8 点，从 Hacker News 和 TechCrunch 编译 AI 发展新闻，并向我发送简报
 ```
 
-From the main channel (your self-chat), you can manage groups and tasks:
+从主频道（你的自聊），你可以管理群组和任务：
 ```
-@Andy list all scheduled tasks across groups
-@Andy pause the Monday briefing task
-@Andy join the Family Chat group
+@Finch 列出所有群组的定时任务
+@Finch 暂停周一简报任务
+@Finch 加入家庭聊天群组
 ```
 
-## Customizing
+## 定制
 
-There are no configuration files to learn. Just tell Claude Code what you want:
+没有需要学习的配置文件。只需告诉 Claude Code 你想要什么：
 
-- "Change the trigger word to @Bob"
-- "Remember in the future to make responses shorter and more direct"
-- "Add a custom greeting when I say good morning"
-- "Store conversation summaries weekly"
+- "将触发词改为 @Bob"
+- "以后记得让回复更短更直接"
+- "当我说早上好时添加自定义问候语"
+- "每周存储对话摘要"
 
-Or run `/customize` for guided changes.
+或运行 `/customize` 进行引导式更改。
 
-The codebase is small enough that Claude can safely modify it.
+代码库足够小，Claude 可以安全地修改它。
 
-## Contributing
+## 贡献
 
-**Don't add features. Add skills.**
+**不要添加功能。添加技能。**
 
-If you want to add Telegram support, don't create a PR that adds Telegram alongside WhatsApp. Instead, contribute a skill file (`.claude/skills/add-telegram/SKILL.md`) that teaches Claude Code how to transform a NanoClaw installation to use Telegram.
+如果你想添加 Telegram 支持，不要创建一个在 WhatsApp 旁边添加 Telegram 的 PR。相反，贡献一个技能文件（`.claude/skills/add-telegram/SKILL.md`），教 Claude Code 如何将 NanoClaw 安装转换为使用 Telegram。
 
-Users then run `/add-telegram` on their fork and get clean code that does exactly what they need, not a bloated system trying to support every use case.
+然后用户在他们的 fork 上运行 `/add-telegram`，得到干净的代码，完全符合他们的需求，而不是一个试图支持每个用例的臃肿系统。
 
-### RFS (Request for Skills)
+### RFS（技能请求）
 
-Skills we'd love to see:
+我们希望看到的技能：
 
-**Communication Channels**
-- `/add-telegram` - Add Telegram as channel. Should give the user option to replace WhatsApp or add as additional channel. Also should be possible to add it as a control channel (where it can trigger actions) or just a channel that can be used in actions triggered elsewhere
-- `/add-slack` - Add Slack
-- `/add-discord` - Add Discord
+**通信频道**
+- `/add-telegram` - 添加 Telegram 作为频道。应该给用户选项替换 WhatsApp 或作为附加频道添加。也应该可以将其添加为控制频道（可以触发操作）或仅作为可在其他地方触发的操作中使用的频道
+- `/add-slack` - 添加 Slack
+- `/add-discord` - 添加 Discord
 
-**Platform Support**
-- `/setup-windows` - Windows via WSL2 + Docker
+**平台支持**
+- `/setup-windows` - 通过 WSL2 + Docker 支持 Windows
 
-**Session Management**
-- `/add-clear` - Add a `/clear` command that compacts the conversation (summarizes context while preserving critical information in the same session). Requires figuring out how to trigger compaction programmatically via the Claude Agent SDK.
+**会话管理**
+- `/add-clear` - 添加 `/clear` 命令，压缩对话（在同一会话中总结上下文同时保留关键信息）。需要弄清楚如何通过 Claude Agent SDK 以编程方式触发压缩。
 
-## Requirements
+## 系统要求
 
-- macOS or Linux
+- macOS 或 Linux
 - Node.js 20+
 - [Claude Code](https://claude.ai/download)
-- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+- [Apple Container](https://github.com/apple/container)（macOS）或 [Docker](https://docker.com/products/docker-desktop)（macOS/Linux）
 
-## Architecture
+## 架构
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+Telegram (Grammy) --> SQLite --> 轮询循环 --> 容器 (Claude Agent SDK) --> 响应
 ```
 
-Single Node.js process. Agents execute in isolated Linux containers with mounted directories. Per-group message queue with concurrency control. IPC via filesystem.
+单个 Node.js 进程。代理在隔离的 Linux 容器中执行，挂载目录。每个群组的消息队列具有并发控制。通过文件系统进行 IPC。
 
-Key files:
-- `src/index.ts` - Orchestrator: state, message loop, agent invocation
-- `src/channels/whatsapp.ts` - WhatsApp connection, auth, send/receive
-- `src/ipc.ts` - IPC watcher and task processing
-- `src/router.ts` - Message formatting and outbound routing
-- `src/group-queue.ts` - Per-group queue with global concurrency limit
-- `src/container-runner.ts` - Spawns streaming agent containers
-- `src/task-scheduler.ts` - Runs scheduled tasks
-- `src/db.ts` - SQLite operations (messages, groups, sessions, state)
-- `groups/*/CLAUDE.md` - Per-group memory
+关键文件：
+- `src/index.ts` - 编排器：状态、消息循环、代理调用
+- `src/channels/telegram.ts` - Telegram 连接、认证、发送/接收
+- `src/ipc.ts` - IPC 监视器和任务处理
+- `src/router.ts` - 消息格式化和出站路由
+- `src/group-queue.ts` - 具有全局并发限制的每组队列
+- `src/container-runner.ts` - 生成流式代理容器
+- `src/task-scheduler.ts` - 运行定时任务
+- `src/db.ts` - SQLite 操作（消息、群组、会话、状态）
+- `groups/*/CLAUDE.md` - 每组内存
 
-## FAQ
+## 常见问题
 
-**Why WhatsApp and not Telegram/Signal/etc?**
+**为什么是 Telegram 而不是 WhatsApp/Signal 等？**
 
-Because I use WhatsApp. Fork it and run a skill to change it. That's the whole point.
+因为我使用 Telegram。Fork 它并运行技能来更改它。这就是重点。
 
-**Why Apple Container instead of Docker?**
+**为什么是 Apple Container 而不是 Docker？**
 
-On macOS, Apple Container is lightweight, fast, and optimized for Apple silicon. But Docker is also fully supported—during `/setup`, you can choose which runtime to use. On Linux, Docker is used automatically.
+在 macOS 上，Apple Container 轻量、快速，并针对 Apple silicon 进行了优化。但 Docker 也完全支持——在 `/setup` 期间，你可以选择使用哪个运行时。在 Linux 上，自动使用 Docker。
 
-**Can I run this on Linux?**
+**可以在 Linux 上运行吗？**
 
-Yes. Run `/setup` and it will automatically configure Docker as the container runtime. Thanks to [@dotsetgreg](https://github.com/dotsetgreg) for contributing the `/convert-to-docker` skill.
+可以。运行 `/setup`，它会自动将 Docker 配置为容器运行时。感谢 [@dotsetgreg](https://github.com/dotsetgreg) 贡献的 `/convert-to-docker` 技能。
 
-**Is this secure?**
+**这安全吗？**
 
-Agents run in containers, not behind application-level permission checks. They can only access explicitly mounted directories. You should still review what you're running, but the codebase is small enough that you actually can. See [docs/SECURITY.md](docs/SECURITY.md) for the full security model.
+代理在容器中运行，而不是在应用层级权限检查后面。它们只能访问明确挂载的目录。你仍然应该审查你正在运行的内容，但代码库足够小，你实际上可以做到。有关完整的安全模型，请参阅 [docs/SECURITY.md](docs/SECURITY.md)。
 
-**Why no configuration files?**
+**为什么没有配置文件？**
 
-We don't want configuration sprawl. Every user should customize it to so that the code matches exactly what they want rather than configuring a generic system. If you like having config files, tell Claude to add them.
+我们不想要配置膨胀。每个用户都应该定制它，使代码完全符合他们的需求，而不是配置一个通用系统。如果你喜欢配置文件，告诉 Claude 添加它们。
 
-**How do I debug issues?**
+**如何调试问题？**
 
-Ask Claude Code. "Why isn't the scheduler running?" "What's in the recent logs?" "Why did this message not get a response?" That's the AI-native approach.
+询问 Claude Code。"为什么调度程序没有运行？" "最近的日志中有什么？" "为什么这条消息没有得到响应？" 这就是 AI 原生方法。
 
-**Why isn't the setup working for me?**
+**为什么设置对我不起作用？**
 
-I don't know. Run `claude`, then run `/debug`. If claude finds an issue that is likely affecting other users, open a PR to modify the setup SKILL.md.
+我不知道。运行 `claude`，然后运行 `/debug`。如果 claude 发现可能影响其他用户的问题，请打开 PR 修改设置 SKILL.md。
 
-**What changes will be accepted into the codebase?**
+**哪些更改会被接受到代码库中？**
 
-Security fixes, bug fixes, and clear improvements to the base configuration. That's it.
+安全修复、错误修复和对基本配置的明确改进。就这些。
 
-Everything else (new capabilities, OS compatibility, hardware support, enhancements) should be contributed as skills.
+其他所有内容（新功能、操作系统兼容性、硬件支持、增强功能）都应该作为技能贡献。
 
-This keeps the base system minimal and lets every user customize their installation without inheriting features they don't want.
+这使基本系统保持最小化，并让每个用户定制他们的安装，而不会继承他们不想要的功能。
 
-## Community
+## 社区
 
-Questions? Ideas? [Join the Discord](https://discord.gg/VGWXrf8x).
+有问题？有想法？[加入 Discord](https://discord.gg/VGWXrf8x)。
 
-## License
+## 许可证
 
 MIT
