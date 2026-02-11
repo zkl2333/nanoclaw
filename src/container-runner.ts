@@ -22,6 +22,33 @@ import { RegisteredGroup } from './types.js';
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
+// Auto-detect container runtime: Docker or Apple Container
+let CONTAINER_RUNTIME: 'docker' | 'container' | null = null;
+
+function getContainerRuntime(): 'docker' | 'container' {
+  if (CONTAINER_RUNTIME) return CONTAINER_RUNTIME;
+
+  // Check if Docker command exists (Linux environment)
+  try {
+    require('child_process').execSync('which docker', { encoding: 'utf-8', stdio: ['ignore', 'ignore'] });
+    CONTAINER_RUNTIME = 'docker';
+    return CONTAINER_RUNTIME;
+  } catch {
+    // Docker not found, try Apple Container (macOS)
+  }
+
+  // Check for Apple Container (macOS only)
+  try {
+    require('child_process').execSync('which container', { encoding: 'utf-8', stdio: ['ignore', 'ignore'] });
+    CONTAINER_RUNTIME = 'container';
+    return CONTAINER_RUNTIME;
+  } catch {
+    // Last resort: assume Docker (might be in PATH but not found by which)
+    CONTAINER_RUNTIME = 'docker';
+    return CONTAINER_RUNTIME;
+  }
+}
+
 function getHomeDir(): string {
   const home = process.env.HOME || os.homedir();
   if (!home) {
@@ -163,7 +190,7 @@ function buildVolumeMounts(
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'];
+    const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL'];
     const filteredLines = envContent.split('\n').filter((line) => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) return false;
@@ -268,7 +295,8 @@ export async function runContainerAgent(
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {
-    const container = spawn('container', containerArgs, {
+    const runtime = getContainerRuntime();
+    const container = spawn(runtime, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -367,7 +395,8 @@ export async function runContainerAgent(
     const killOnTimeout = () => {
       timedOut = true;
       logger.error({ group: group.name, containerName }, 'Container timeout, stopping gracefully');
-      exec(`container stop ${containerName}`, { timeout: 15000 }, (err) => {
+      const runtime = getContainerRuntime();
+      exec(`${runtime} stop ${containerName}`, { timeout: 15000 }, (err) => {
         if (err) {
           logger.warn({ group: group.name, containerName, err }, 'Graceful stop failed, force killing');
           container.kill('SIGKILL');

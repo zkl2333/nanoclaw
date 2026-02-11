@@ -125,6 +125,7 @@ export class GroupQueue {
    */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
+    logger.debug({ groupJid, active: state.active, hasGroupFolder: !!state.groupFolder }, 'sendMessage called');
     if (!state.active || !state.groupFolder) return false;
 
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
@@ -135,8 +136,10 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
       fs.renameSync(tempPath, filepath);
+      logger.debug({ groupJid, filepath }, 'IPC message written');
       return true;
-    } catch {
+    } catch (err) {
+      logger.warn({ groupJid, err }, 'Failed to write IPC message');
       return false;
     }
   }
