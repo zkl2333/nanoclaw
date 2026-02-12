@@ -1,17 +1,17 @@
 /**
  * NanoClaw Agent Runner
- * Runs inside a container, receives config via stdin, outputs result to stdout
+ * 在容器内运行，通过 stdin 接收配置，将结果输出到 stdout
  *
- * Input protocol:
- *   Stdin: Full ContainerInput JSON (read until EOF, like before)
- *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
- *          Files: {type:"message", text:"..."}.json — polled and consumed
- *          Sentinel: /workspace/ipc/input/_close — signals session end
+ * 输入协议：
+ *   Stdin: 完整 ContainerInput JSON（读到 EOF 为止，与之前相同）
+ *   IPC:   后续消息以 JSON 文件写入 /workspace/ipc/input/
+ *          文件格式: {type:"message", text:"..."}.json — 轮询并消费
+ *          哨兵文件: /workspace/ipc/input/_close — 表示会话结束
  *
- * Stdout protocol:
- *   Each result is wrapped in OUTPUT_START_MARKER / OUTPUT_END_MARKER pairs.
- *   Multiple results may be emitted (one per agent teams result).
- *   Final marker after loop ends signals completion.
+ * Stdout 协议：
+ *   每个结果用 OUTPUT_START_MARKER / OUTPUT_END_MARKER 包裹。
+ *   可能输出多个结果（每个 agent teams 结果一个）。
+ *   循环结束后的最终标记表示完成。
  */
 
 import fs from 'fs';
@@ -55,11 +55,37 @@ interface SDKUserMessage {
 
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
+const IPC_MESSAGES_DIR = '/workspace/ipc/messages';
 const IPC_POLL_MS = 500;
 
+function writeIpcActivity(
+  chatJid: string,
+  kind: 'thinking' | 'tool',
+  name?: string,
+  detail?: string,
+): void {
+  try {
+    fs.mkdirSync(IPC_MESSAGES_DIR, { recursive: true });
+    const data: Record<string, string | undefined> = {
+      type: 'activity',
+      chatJid,
+      kind,
+      ...(name && { name }),
+      ...(detail && { detail: detail.slice(0, 120) }),
+    };
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+    const filepath = path.join(IPC_MESSAGES_DIR, filename);
+    const tempPath = `${filepath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tempPath, filepath);
+  } catch (err) {
+    log(`Failed to write activity IPC: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /**
- * Push-based async iterable for streaming user messages to the SDK.
- * Keeps the iterable alive until end() is called, preventing isSingleUserTurn.
+ * 基于推送的异步可迭代对象，用于向 SDK 流式传递用户消息。
+ * 在调用 end() 之前保持可迭代对象存活，避免 isSingleUserTurn。
  */
 class MessageStream {
   private queue: SDKUserMessage[] = [];
@@ -139,7 +165,7 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
 }
 
 /**
- * Archive the full transcript to conversations/ before compaction.
+ * 在压缩前将完整对话记录归档到 conversations/。
  */
 function createPreCompactHook(): HookCallback {
   return async (input, _toolUseId, _context) => {
@@ -258,19 +284,19 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
 }
 
 /**
- * Check for _close sentinel.
+ * 检查 _close 哨兵文件是否存在。
  */
 function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
-    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* 忽略 */ }
     return true;
   }
   return false;
 }
 
 /**
- * Drain all pending IPC input messages.
- * Returns messages found, or empty array.
+ * 消费所有待处理的 IPC 输入消息。
+ * 返回找到的消息，若无则返回空数组。
  */
 function drainIpcInput(): string[] {
   try {
@@ -290,7 +316,7 @@ function drainIpcInput(): string[] {
         }
       } catch (err) {
         log(`Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`);
-        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+        try { fs.unlinkSync(filePath); } catch { /* 忽略 */ }
       }
     }
     return messages;
@@ -301,8 +327,8 @@ function drainIpcInput(): string[] {
 }
 
 /**
- * Wait for a new IPC message or _close sentinel.
- * Returns the messages as a single string, or null if _close.
+ * 等待新的 IPC 消息或 _close 哨兵。
+ * 返回消息拼接成的字符串，若为 _close 则返回 null。
  */
 function waitForIpcMessage(): Promise<string | null> {
   return new Promise((resolve) => {
@@ -323,10 +349,10 @@ function waitForIpcMessage(): Promise<string | null> {
 }
 
 /**
- * Run a single query and stream results via writeOutput.
- * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
- * allowing agent teams subagents to run to completion.
- * Also pipes IPC messages into the stream during the query.
+ * 执行单次查询并通过 writeOutput 流式输出结果。
+ * 使用 MessageStream（AsyncIterable）保持 isSingleUserTurn=false，
+ * 使 agent teams 子代理能完整运行。
+ * 查询期间也会将 IPC 消息注入流中。
  */
 async function runQuery(
   prompt: string,
@@ -338,7 +364,7 @@ async function runQuery(
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // Poll IPC for follow-up messages and _close sentinel during the query
+  // 查询期间轮询 IPC 获取后续消息和 _close 哨兵
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
@@ -364,7 +390,7 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
+  // 加载全局 CLAUDE.md 作为额外系统上下文（所有群组共享）
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
   let globalClaudeMd: string | undefined;
   if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
@@ -413,8 +439,9 @@ async function runQuery(
     const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);
 
-    if (message.type === 'assistant' && 'uuid' in message) {
-      lastAssistantUuid = (message as { uuid: string }).uuid;
+    if (message.type === 'assistant') {
+      if ('uuid' in message) lastAssistantUuid = (message as { uuid: string }).uuid;
+      writeIpcActivity(containerInput.chatJid, 'thinking');
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
@@ -429,8 +456,11 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const msgResult = message as { subtype?: string; result?: string };
+      const textResult = msgResult.result ?? null;
+      const subtype = msgResult.subtype;
+      if (subtype) writeIpcActivity(containerInput.chatJid, 'tool', subtype);
+      log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
       writeOutput({
         status: 'success',
         result: textResult || null,
@@ -466,10 +496,10 @@ async function main(): Promise<void> {
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
-  // Clean up stale _close sentinel from previous container runs
-  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+  // 清理上次容器运行遗留的 _close 哨兵
+  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* 忽略 */ }
 
-  // Build initial prompt (drain any pending IPC messages too)
+  // 构建初始 prompt（同时消费所有待处理的 IPC 消息）
   let prompt = containerInput.prompt;
   if (containerInput.isScheduledTask) {
     prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
@@ -480,7 +510,7 @@ async function main(): Promise<void> {
     prompt += '\n' + pending.join('\n');
   }
 
-  // Query loop: run query → wait for IPC message → run new query → repeat
+  // 查询循环：执行查询 → 等待 IPC 消息 → 执行新查询 → 重复
   let resumeAt: string | undefined;
   try {
     while (true) {
@@ -494,20 +524,20 @@ async function main(): Promise<void> {
         resumeAt = queryResult.lastAssistantUuid;
       }
 
-      // If _close was consumed during the query, exit immediately.
-      // Don't emit a session-update marker (it would reset the host's
-      // idle timer and cause a 30-min delay before the next _close).
+      // 若在查询期间已消费 _close，立即退出。
+      // 不再发送 session-update 标记（否则会重置主机的空闲计时器，
+      // 导致下次 _close 前多等 30 分钟）。
       if (queryResult.closedDuringQuery) {
         log('Close sentinel consumed during query, exiting');
         break;
       }
 
-      // Emit session update so host can track it
+      // 发送会话更新供主机跟踪
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
       log('Query ended, waiting for next IPC message...');
 
-      // Wait for the next message or _close sentinel
+      // 等待下一条消息或 _close 哨兵
       const nextMessage = await waitForIpcMessage();
       if (nextMessage === null) {
         log('Close sentinel received, exiting');

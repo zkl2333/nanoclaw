@@ -179,7 +179,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (result.result) {
         const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
         logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-        await sendOutbound(channel, chatJid, raw);
+        // Note: Agent sends actual replies via IPC. This result is just internal summary.
         // Advance cursor immediately after successful message delivery
         lastAgentTimestamp[chatJid] = lastMessageTimestamp;
         saveState();
@@ -189,6 +189,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
   } finally {
     await channel.setTyping?.(chatJid, false);
+    await channel.setActivity?.(chatJid, null);
     if (idleTimer) clearTimeout(idleTimer);
   }
 
@@ -337,15 +338,54 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend);
+
+          // Handle /verbose commands — consume without sending to agent
+          const verboseRe = /^\/verbose(?: (on|off))?$/;
+          const verboseCommands = messagesToSend.filter((m) =>
+            verboseRe.test(m.content.trim()),
+          );
+          const otherMessages = messagesToSend.filter(
+            (m) => !verboseCommands.includes(m),
+          );
+
+          if (verboseCommands.length > 0) {
+            const channel = findChannel(channels, chatJid);
+            for (const cmd of verboseCommands) {
+              const match = cmd.content.trim().match(verboseRe);
+              const arg = match?.[1];
+              if (arg === 'on') {
+                setRouterState(`verbose:${chatJid}`, '1');
+                await channel?.sendMessage(
+                  chatJid,
+                  'Verbose mode on. You\'ll see agent activity here.',
+                );
+              } else if (arg === 'off') {
+                setRouterState(`verbose:${chatJid}`, '0');
+                await channel?.sendMessage(chatJid, 'Verbose mode off.');
+              } else {
+                const isOn = getRouterState(`verbose:${chatJid}`) === '1';
+                await channel?.sendMessage(
+                  chatJid,
+                  `Verbose: ${isOn ? 'on' : 'off'}`,
+                );
+              }
+            }
+            lastAgentTimestamp[chatJid] =
+              verboseCommands[verboseCommands.length - 1].timestamp;
+            saveState();
+          }
+
+          if (otherMessages.length === 0) continue;
+
+          const formatted = formatMessages(otherMessages);
 
           if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(
-              { chatJid, count: messagesToSend.length },
+              { chatJid, count: otherMessages.length },
               'Piped messages to active container',
             );
             lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
+              otherMessages[otherMessages.length - 1].timestamp;
             saveState();
           } else {
             // No active container — enqueue for a new one
@@ -534,10 +574,19 @@ async function main(): Promise<void> {
   });
   startIpcWatcher({
     sendMessage: async (jid, rawText) => {
-      const channel = findChannel(channels, jid);
-      if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      await sendOutbound(channel, jid, rawText);
+      const ch = findChannel(channels, jid);
+      if (!ch) throw new Error(`No channel for JID: ${jid}`);
+      await sendOutbound(ch, jid, rawText);
     },
+    setTyping: async (jid) => {
+      const ch = findChannel(channels, jid);
+      await ch?.setTyping?.(jid, true);
+    },
+    setActivity: async (jid, text) => {
+      const ch = findChannel(channels, jid);
+      await ch?.setActivity?.(jid, text);
+    },
+    isVerbose: (jid) => getRouterState(`verbose:${jid}`) === '1',
     registeredGroups: () => registeredGroups,
     registerGroup,
     syncGroupMetadata: () => Promise.resolve(),

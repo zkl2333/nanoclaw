@@ -14,8 +14,22 @@ import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
+/** 将 activity 数据格式化为调试模式展示文本（中文） */
+function formatActivityText(
+  kind: 'thinking' | 'tool',
+  name?: string,
+  detail?: string,
+): string {
+  if (kind === 'thinking') return '_Agent: 思考中..._';
+  if (name) return detail ? `_Agent: 工具: ${name} — ${detail}_` : `_Agent: 工具: ${name}_`;
+  return '_Agent: 工具_';
+}
+
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  setTyping: (jid: string) => Promise<void>;
+  setActivity: (jid: string, text: string | null) => Promise<void>;
+  isVerbose: (jid: string) => boolean;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroupMetadata: (force: boolean) => Promise<void>;
@@ -88,6 +102,22 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
                   );
+                }
+              } else if (data.type === 'activity' && data.chatJid && data.kind) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
+                  await deps.setTyping(data.chatJid);
+                  if (deps.isVerbose(data.chatJid)) {
+                    const text = formatActivityText(
+                      data.kind as 'thinking' | 'tool',
+                      data.name,
+                      data.detail,
+                    );
+                    await deps.setActivity(data.chatJid, text);
+                  }
                 }
               }
               fs.unlinkSync(filePath);

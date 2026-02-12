@@ -34,6 +34,16 @@ function writeIpcFile(dir: string, data: object): string {
   return filename;
 }
 
+function writeActivity(kind: 'thinking' | 'tool', name?: string, detail?: string): void {
+  writeIpcFile(MESSAGES_DIR, {
+    type: 'activity',
+    chatJid,
+    kind,
+    ...(name && { name }),
+    ...(detail && { detail: detail.slice(0, 120) }),
+  });
+}
+
 const server = new McpServer({
   name: 'nanoclaw',
   version: '1.0.0',
@@ -47,6 +57,7 @@ server.tool(
     sender: z.string().optional().describe('Your role/identity name (e.g. "Researcher"). When set, messages appear from a dedicated bot in Telegram.'),
   },
   async (args) => {
+    writeActivity('tool', 'send_message');
     const data: Record<string, string | undefined> = {
       type: 'message',
       chatJid,
@@ -124,6 +135,8 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
     // Non-main groups can only schedule for themselves
     const targetJid = isMain && args.target_group_jid ? args.target_group_jid : chatJid;
 
+    writeActivity('tool', 'schedule_task', `${args.schedule_type}: ${args.schedule_value}`);
+
     const data = {
       type: 'schedule_task',
       prompt: args.prompt,
@@ -148,6 +161,7 @@ server.tool(
   "List all scheduled tasks. From main: shows all tasks. From other groups: shows only that group's tasks.",
   {},
   async () => {
+    writeActivity('tool', 'list_tasks');
     const tasksFile = path.join(IPC_DIR, 'current_tasks.json');
 
     try {
@@ -186,6 +200,7 @@ server.tool(
   'Pause a scheduled task. It will not run until resumed.',
   { task_id: z.string().describe('The task ID to pause') },
   async (args) => {
+    writeActivity('tool', 'pause_task', args.task_id);
     const data = {
       type: 'pause_task',
       taskId: args.task_id,
@@ -205,6 +220,7 @@ server.tool(
   'Resume a paused task.',
   { task_id: z.string().describe('The task ID to resume') },
   async (args) => {
+    writeActivity('tool', 'resume_task', args.task_id);
     const data = {
       type: 'resume_task',
       taskId: args.task_id,
@@ -224,6 +240,7 @@ server.tool(
   'Cancel and delete a scheduled task.',
   { task_id: z.string().describe('The task ID to cancel') },
   async (args) => {
+    writeActivity('tool', 'cancel_task', args.task_id);
     const data = {
       type: 'cancel_task',
       taskId: args.task_id,
@@ -256,6 +273,8 @@ Use available_groups.json to find the JID for a group. The folder name should be
         isError: true,
       };
     }
+
+    writeActivity('tool', 'register_group', args.name);
 
     const data = {
       type: 'register_group',

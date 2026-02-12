@@ -52,6 +52,9 @@ beforeEach(() => {
 
   deps = {
     sendMessage: async () => {},
+    setTyping: async () => {},
+    setActivity: async () => {},
+    isVerbose: () => false,
     registeredGroups: () => groups,
     registerGroup: (jid, group) => {
       groups[jid] = group;

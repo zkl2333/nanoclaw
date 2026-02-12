@@ -38,10 +38,8 @@ export class TelegramChannel implements Channel {
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
-  /** Active typing indicator intervals, keyed by JID */
-  private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
-  /** Track current typing state to prevent duplicate calls */
-  private typingState = new Map<string, boolean>();
+  /** Activity status message IDs for debug mode (single editable message per chat) */
+  private activityMessageIds = new Map<string, number>();
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -126,6 +124,7 @@ export class TelegramChannel implements Channel {
       { command: 'start', description: '开始使用 / 查看欢迎信息' },
       { command: 'help', description: '查看帮助和可用命令' },
       { command: 'new', description: '清除上下文，开始全新对话' },
+      { command: 'restart', description: '重启服务（仅主群组）' },
       { command: 'chatid', description: '获取当前聊天的注册 ID' },
       { command: 'status', description: '查看机器人和聊天状态' },
       { command: 'ping', description: '检查机器人是否在线' },
@@ -302,6 +301,8 @@ export class TelegramChannel implements Channel {
 
       // Trigger graceful shutdown handlers (queue/channel cleanup), then let process manager restart.
       logger.info({ chatJid, user: ctx.from?.first_name }, 'Restart requested via Telegram');
+
+      // Use setImmediate to exit the handler before triggering shutdown
       setImmediate(() => process.kill(process.pid, 'SIGTERM'));
     });
 
@@ -608,8 +609,10 @@ export class TelegramChannel implements Channel {
     // 后台启动轮询（不等待返回）
     logger.info('Starting Telegram bot polling...');
     // allowed_updates 需包含 message_reaction 才能收到反应事件
+    // drop_pending_updates 防止重启后重复处理旧消息
     this.bot.start({
       allowed_updates: ['message', 'message_reaction'],
+      drop_pending_updates: true,
     }).then(() => {
       logger.info('Bot polling started successfully');
     }).catch((err) => {
@@ -762,12 +765,7 @@ export class TelegramChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
-    // Clear all typing indicator intervals
-    for (const interval of this.typingIntervals.values()) {
-      clearInterval(interval);
-    }
-    this.typingIntervals.clear();
-    this.typingState.clear();
+    this.activityMessageIds.clear();
 
     if (this.bot) {
       this.bot.stop();
@@ -778,45 +776,41 @@ export class TelegramChannel implements Channel {
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
     if (!this.bot) return;
-
-    // Prevent duplicate calls - check if already in the desired state
-    const currentState = this.typingState.get(jid);
-    if (currentState === isTyping) {
-      logger.debug({ jid, isTyping }, 'setTyping: already in desired state, skipping');
-      return;
-    }
-
-    logger.debug({ jid, isTyping, previousState: currentState, existingIntervals: this.typingIntervals.size }, 'setTyping called');
-
-    // Clear any existing interval for this JID first
-    const existing = this.typingIntervals.get(jid);
-    if (existing) {
-      clearInterval(existing);
-      this.typingIntervals.delete(jid);
-      logger.debug({ jid }, 'Cleared existing typing interval');
-    }
-
-    // Update state tracking
-    this.typingState.set(jid, isTyping);
-
-    // When stopping typing, just let it expire naturally (Telegram auto-expires after ~5s)
-    // We've already cleared the interval above, so no more typing actions will be sent
-    if (!isTyping) {
-      logger.debug({ jid }, 'Typing stopped (interval cleared, will expire naturally)');
-      return;
-    }
+    if (!isTyping) return; // Telegram auto-expires typing after ~5s, no action needed
 
     const numericId = jid.replace(/^tg:/, '');
+    this.bot.api.sendChatAction(numericId, 'typing').catch((err) => {
+      logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+    });
+  }
 
-    // Send immediately, then repeat every 4.5s (Telegram expires typing after 5s)
-    const sendAction = () => {
-      this.bot?.api.sendChatAction(numericId, 'typing').catch((err) => {
-        logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
-      });
-    };
+  async setActivity(jid: string, text: string | null): Promise<void> {
+    if (!this.bot) return;
 
-    sendAction();
-    this.typingIntervals.set(jid, setInterval(sendAction, 4500));
-    logger.debug({ jid }, 'Typing started (interval registered)');
+    const numericId = jid.replace(/^tg:/, '');
+    const existingId = this.activityMessageIds.get(jid);
+
+    if (text === null) {
+      if (existingId !== undefined) {
+        try {
+          await this.bot.api.deleteMessage(numericId, existingId);
+        } catch (err) {
+          logger.debug({ jid, messageId: existingId, err }, 'Failed to delete activity message');
+        }
+        this.activityMessageIds.delete(jid);
+      }
+      return;
+    }
+
+    try {
+      if (existingId !== undefined) {
+        await this.bot.api.editMessageText(numericId, existingId, text);
+      } else {
+        const sent = await this.bot.api.sendMessage(numericId, text);
+        this.activityMessageIds.set(jid, sent.message_id);
+      }
+    } catch (err) {
+      logger.debug({ jid, err }, 'Failed to update activity message');
+    }
   }
 }
