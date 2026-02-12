@@ -450,7 +450,7 @@ function ensureContainerSystemRunning(): void {
     });
 
     // Parse output: docker/container return newline-separated JSON objects
-    const containers: { status: string; names?: string[]; configuration?: { id: string } }[] = output
+    const containers: { State?: string; Names?: string; status?: string; names?: string[]; configuration?: { id: string } }[] = output
       .trim()
       .split('\n')
       .filter(line => line.trim())
@@ -458,10 +458,12 @@ function ensureContainerSystemRunning(): void {
 
     const orphans = containers
       .filter((c) => {
-        const name = runtime === 'docker' ? (c.names || [])[0] : c.configuration?.id;
-        return c.status === 'running' && name?.startsWith('nanoclaw-');
+        // Docker uses "Names" (string) and "State", Apple Container uses "names" (array) and "status"
+        const name = runtime === 'docker' ? c.Names : c.configuration?.id;
+        const state = runtime === 'docker' ? c.State : c.status;
+        return state === 'running' && name?.startsWith('nanoclaw-');
       })
-      .map((c) => runtime === 'docker' ? (c.names || [])[0] : c.configuration!.id);
+      .map((c) => runtime === 'docker' ? c.Names! : c.configuration!.id);
 
     for (const name of orphans) {
       try {
