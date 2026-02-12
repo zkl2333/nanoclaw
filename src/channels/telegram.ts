@@ -202,6 +202,7 @@ export class TelegramChannel implements Channel {
         `/start — 开始使用 / 查看欢迎信息`,
         `/help — 查看本帮助`,
         `/new — 清除上下文，开始全新对话`,
+        `/restart — 重启服务（重新加载代码）`,
         `/chatid — 获取当前聊天的注册 ID`,
         `/status — 查看机器人和聊天状态`,
         `/ping — 快速检查是否在线`,
@@ -278,6 +279,30 @@ export class TelegramChannel implements Channel {
     // ── /ping ─ 快速在线检查 ──────────────────────────────────────
     this.bot.command('ping', (ctx) => {
       ctx.reply(`${ASSISTANT_NAME} is online. ✓`);
+    });
+
+    // ── /restart ─ 重启服务 ─────────────────────────────────────────
+    this.bot.command('restart', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+
+      // Only allow main group to restart
+      const isMainGroup = group?.folder === 'main';
+
+      if (!isMainGroup) {
+        ctx.reply('❌ 只有主群组可以重启服务。');
+        return;
+      }
+
+      try {
+        await ctx.reply('🔄 正在重启服务...\n\n服务将重新加载最新代码。');
+      } catch (err) {
+        logger.warn({ chatJid, err }, 'Failed to send restart acknowledgement');
+      }
+
+      // Trigger graceful shutdown handlers (queue/channel cleanup), then let process manager restart.
+      logger.info({ chatJid, user: ctx.from?.first_name }, 'Restart requested via Telegram');
+      setImmediate(() => process.kill(process.pid, 'SIGTERM'));
     });
 
     this.bot.on('message:text', async (ctx) => {
