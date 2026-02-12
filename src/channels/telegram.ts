@@ -38,6 +38,8 @@ export class TelegramChannel implements Channel {
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
+  /** Active typing indicator intervals, keyed by JID */
+  private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -733,6 +735,12 @@ export class TelegramChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    // Clear all typing indicator intervals
+    for (const interval of this.typingIntervals.values()) {
+      clearInterval(interval);
+    }
+    this.typingIntervals.clear();
+
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
@@ -741,12 +749,27 @@ export class TelegramChannel implements Channel {
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    if (!this.bot || !isTyping) return;
-    try {
-      const numericId = jid.replace(/^tg:/, '');
-      await this.bot.api.sendChatAction(numericId, 'typing');
-    } catch (err) {
-      logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+    if (!this.bot) return;
+
+    // Clear any existing interval for this JID first
+    const existing = this.typingIntervals.get(jid);
+    if (existing) {
+      clearInterval(existing);
+      this.typingIntervals.delete(jid);
     }
+
+    if (!isTyping) return;
+
+    const numericId = jid.replace(/^tg:/, '');
+
+    // Send immediately, then repeat every 4.5s (Telegram expires typing after 5s)
+    const sendAction = () => {
+      this.bot?.api.sendChatAction(numericId, 'typing').catch((err) => {
+        logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+      });
+    };
+
+    sendAction();
+    this.typingIntervals.set(jid, setInterval(sendAction, 4500));
   }
 }
