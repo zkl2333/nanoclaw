@@ -179,9 +179,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
-        const formatted = formatOutbound(channel, raw);
-        if (formatted) {
-          await channel.sendMessage(chatJid, formatted);
+        // Check if this is a special command (REPLY_TO or REACT)
+        // If so, send it directly without formatting
+        const isSpecialCommand = /^(REPLY_TO:\d+\n|REACT:\d+:.+)/.test(text);
+        const messageToSend = isSpecialCommand ? text : formatOutbound(channel, raw);
+
+        if (messageToSend) {
+          await channel.sendMessage(chatJid, messageToSend);
           // Advance cursor immediately after successful message delivery
           lastAgentTimestamp[chatJid] = lastMessageTimestamp;
           saveState();
