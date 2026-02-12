@@ -179,15 +179,72 @@ export class TelegramChannel implements Channel {
     this.bot.on('message:location', (ctx) => storeNonText(ctx, '[Location]'));
     this.bot.on('message:contact', (ctx) => storeNonText(ctx, '[Contact]'));
 
+    // 处理消息反应 (message_reaction) 更新，转成消息供 agent 读取
+    this.bot.on('message_reaction', (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      const reaction = ctx.messageReaction;
+      const senderName =
+        reaction.user?.first_name ||
+        reaction.user?.username ||
+        reaction.user?.id?.toString() ||
+        'Unknown';
+      const sender = reaction.user?.id?.toString() || '';
+      const timestamp = new Date(reaction.date * 1000).toISOString();
+      const messageId = reaction.message_id;
+
+      // 计算新增/移除的 emoji
+      const extractEmojis = (reactions: typeof reaction.old_reaction) =>
+        reactions
+          .filter((r) => r.type === 'emoji')
+          .map((r) => (r as { type: 'emoji'; emoji: string }).emoji);
+      const oldEmojis = extractEmojis(reaction.old_reaction);
+      const newEmojis = extractEmojis(reaction.new_reaction);
+      const addedEmojis = newEmojis.filter((e) => !oldEmojis.includes(e));
+      const removedEmojis = oldEmojis.filter((e) => !newEmojis.includes(e));
+
+      if (addedEmojis.length === 0 && removedEmojis.length === 0) return;
+
+      // 生成可读文本描述
+      const parts: string[] = [];
+      if (addedEmojis.length > 0) {
+        parts.push(`reacted ${addedEmojis.join('')} to message #${messageId}`);
+      }
+      if (removedEmojis.length > 0) {
+        parts.push(`removed ${removedEmojis.join('')} from message #${messageId}`);
+      }
+      const content = `[${senderName} ${parts.join(' and ')}]`;
+
+      this.opts.onChatMetadata(chatJid, timestamp);
+      this.opts.onMessage(chatJid, {
+        id: `reaction-${messageId}-${Date.now()}`,
+        chat_jid: chatJid,
+        sender,
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+      });
+
+      logger.info(
+        { chatJid, sender: senderName, added: addedEmojis, removed: removedEmojis, messageId },
+        'Telegram reaction stored',
+      );
+    });
+
     // Handle errors gracefully
     this.bot.catch((err) => {
       logger.error({ err: err.message }, 'Telegram bot error');
     });
 
-    // Start polling in background — this never resolves
+    // 后台启动轮询（不等待返回）
     logger.info('Starting Telegram bot polling...');
-    // Don't await bot.start() - it runs indefinitely
-    this.bot.start().then(() => {
+    // allowed_updates 需包含 message_reaction 才能收到反应事件
+    this.bot.start({
+      allowed_updates: ['message', 'message_reaction'],
+    }).then(() => {
       logger.info('Bot polling started successfully');
     }).catch((err) => {
       logger.error({ err }, 'Bot polling error');
@@ -221,23 +278,30 @@ export class TelegramChannel implements Channel {
 
     try {
       const numericId = jid.replace(/^tg:/, '');
+      // Trim to handle trailing newlines/whitespace that break regex $ anchor
+      const trimmed = text.trim();
 
-      // Parse special commands: REPLY_TO:message_id or REACT:message_id:emoji
-      const replyMatch = text.match(/^REPLY_TO:(\d+)\n([\s\S]*)$/);
-      const reactMatch = text.match(/^REACT:(\d+):(.+)$/);
+      // Parse special commands: REACT:message_id:emoji or REPLY_TO:message_id
+      // Use /s flag so . also matches newline (handles edge cases with trailing \n)
+      const reactMatch = trimmed.match(/^REACT:(\d+):(.+)$/s);
+      const replyMatch = trimmed.match(/^REPLY_TO:(\d+)\n([\s\S]*)$/);
 
       if (reactMatch) {
-        // Send emoji reaction
-        const [, messageId, emoji] = reactMatch;
-        await this.bot.api.setMessageReaction(numericId, parseInt(messageId), [
-          { type: 'emoji', emoji: emoji.trim() as any },
-        ]);
-        logger.info({ jid, messageId, emoji }, 'Telegram reaction sent');
+        const [, messageId, rawEmoji] = reactMatch;
+        const emoji = rawEmoji.trim();
+        logger.info({ jid, messageId, emoji }, 'Sending Telegram reaction');
+        try {
+          await this.bot.api.setMessageReaction(numericId, parseInt(messageId), [
+            { type: 'emoji', emoji: emoji as any },
+          ]);
+          logger.info({ jid, messageId, emoji }, 'Telegram reaction sent');
+        } catch (err) {
+          logger.error({ jid, messageId, emoji, err }, 'Failed to send Telegram reaction');
+        }
         return;
       }
 
       if (replyMatch) {
-        // Send as reply
         const [, replyToMessageId, messageText] = replyMatch;
         const MAX_LENGTH = 4096;
         if (messageText.length <= MAX_LENGTH) {
@@ -245,7 +309,6 @@ export class TelegramChannel implements Channel {
             reply_parameters: { message_id: parseInt(replyToMessageId) },
           });
         } else {
-          // First message as reply, rest as regular messages
           await this.bot.api.sendMessage(numericId, messageText.slice(0, MAX_LENGTH), {
             reply_parameters: { message_id: parseInt(replyToMessageId) },
           });
@@ -257,7 +320,13 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      // Regular message (no special commands)
+      // Safety: never leak raw command syntax to users
+      if (/^(REACT|REPLY_TO):/.test(trimmed)) {
+        logger.warn({ jid, text: trimmed.slice(0, 120) }, 'Unparseable special command, suppressing');
+        return;
+      }
+
+      // Regular message
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
         await this.bot.api.sendMessage(numericId, text);

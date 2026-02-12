@@ -38,7 +38,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { startIpcWatcher } from './ipc.js';
-import { formatMessages, formatOutbound, findChannel, routeOutbound } from './router.js';
+import { formatMessages, findChannel, sendOutbound } from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { NewMessage, RegisteredGroup, Channel } from './types.js';
 import { logger } from './logger.js';
@@ -175,23 +175,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        // Check if this is a special command (REPLY_TO or REACT)
-        // If so, send it directly without formatting
-        const isSpecialCommand = /^(REPLY_TO:\d+\n|REACT:\d+:.+)/.test(text);
-        const messageToSend = isSpecialCommand ? text : formatOutbound(channel, raw);
-
-        if (messageToSend) {
-          await channel.sendMessage(chatJid, messageToSend);
-          // Advance cursor immediately after successful message delivery
-          lastAgentTimestamp[chatJid] = lastMessageTimestamp;
-          saveState();
-          logger.debug({ group: group.name }, 'Cursor advanced after successful reply');
-        }
-      }
+      await sendOutbound(channel, chatJid, raw);
+      // Advance cursor immediately after successful message delivery
+      lastAgentTimestamp[chatJid] = lastMessageTimestamp;
+      saveState();
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
     }
@@ -483,6 +471,8 @@ function ensureContainerSystemRunning(): void {
 }
 
 async function main(): Promise<void> {
+  // 启动时打一次，便于确认当前运行的是哪次构建（重启后看日志里的时间是否最新）
+  logger.info('NanoClaw process started');
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
@@ -527,15 +517,14 @@ async function main(): Promise<void> {
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) return;
-      const text = formatOutbound(channel, rawText);
-      if (text) await channel.sendMessage(jid, text);
+      await sendOutbound(channel, jid, rawText);
     },
   });
   startIpcWatcher({
-    sendMessage: (jid, text) => {
+    sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      return channel.sendMessage(jid, text);
+      await sendOutbound(channel, jid, rawText);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,

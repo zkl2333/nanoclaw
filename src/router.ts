@@ -30,14 +30,30 @@ export function formatOutbound(channel: Channel, rawText: string): string {
   return `${prefix}${text}`;
 }
 
-export function routeOutbound(
-  channels: Channel[],
+/**
+ * Unified outbound message handler.
+ * All paths (agent streaming, scheduler, IPC) should use this single entry point.
+ * - Strips <internal> tags
+ * - Special commands (REACT:, REPLY_TO:) are sent raw (no prefix)
+ * - Regular messages get ASSISTANT_NAME prefix (unless channel opts out)
+ */
+export async function sendOutbound(
+  channel: Channel,
   jid: string,
-  text: string,
+  rawText: string,
 ): Promise<void> {
-  const channel = channels.find((c) => c.ownsJid(jid) && c.isConnected());
-  if (!channel) throw new Error(`No channel for JID: ${jid}`);
-  return channel.sendMessage(jid, text);
+  const text = stripInternalTags(rawText);
+  if (!text) return;
+
+  // Special commands must be sent raw — a prefix would break the syntax
+  if (text.startsWith('REACT:') || text.startsWith('REPLY_TO:')) {
+    await channel.sendMessage(jid, text);
+    return;
+  }
+
+  const prefix =
+    channel.prefixAssistantName !== false ? `${ASSISTANT_NAME}: ` : '';
+  await channel.sendMessage(jid, `${prefix}${text}`);
 }
 
 export function findChannel(
