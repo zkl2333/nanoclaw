@@ -30,6 +30,7 @@ import {
   getNewMessages,
   getRouterState,
   initDatabase,
+  clearSession,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -494,6 +495,14 @@ async function main(): Promise<void> {
     onChatMetadata: (chatJid: string, timestamp: string, name?: string) =>
       storeChatMetadata(chatJid, timestamp, name),
     registeredGroups: () => registeredGroups,
+    onClearSession: (chatJid: string): boolean => {
+      const group = registeredGroups[chatJid];
+      if (!group) return false;
+      delete sessions[group.folder];
+      clearSession(group.folder);
+      logger.info({ chatJid, group: group.name, folder: group.folder }, 'Session cleared');
+      return true;
+    },
   };
 
   logger.info({ hasToken: !!TELEGRAM_BOT_TOKEN }, 'Channel config');

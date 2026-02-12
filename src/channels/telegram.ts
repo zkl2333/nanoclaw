@@ -27,6 +27,8 @@ export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  /** 清除指定群组的会话，使下次调用启动全新对话。返回是否成功。 */
+  onClearSession: (chatJid: string) => boolean;
 }
 
 export class TelegramChannel implements Channel {
@@ -119,6 +121,7 @@ export class TelegramChannel implements Channel {
     this.bot.api.setMyCommands([
       { command: 'start', description: '开始使用 / 查看欢迎信息' },
       { command: 'help', description: '查看帮助和可用命令' },
+      { command: 'new', description: '清除上下文，开始全新对话' },
       { command: 'chatid', description: '获取当前聊天的注册 ID' },
       { command: 'status', description: '查看机器人和聊天状态' },
       { command: 'ping', description: '检查机器人是否在线' },
@@ -164,6 +167,26 @@ export class TelegramChannel implements Channel {
       }
     });
 
+    // ── /new ─ 清除上下文，开始新对话 ──────────────────────────────
+    this.bot.command('new', (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+
+      if (!group) {
+        ctx.reply('此聊天尚未注册，无需清除。');
+        return;
+      }
+
+      const cleared = this.opts.onClearSession(chatJid);
+      if (cleared) {
+        ctx.reply(
+          `✅ 上下文已清除。\n\n${ASSISTANT_NAME} 下次回复将开始全新对话，不会记得之前的聊天内容。`,
+        );
+      } else {
+        ctx.reply('清除失败，请稍后重试。');
+      }
+    });
+
     // ── /help ─ 帮助信息 ───────────────────────────────────────────
     this.bot.command('help', (ctx) => {
       const chatJid = `tg:${ctx.chat.id}`;
@@ -174,6 +197,7 @@ export class TelegramChannel implements Channel {
         `*${ASSISTANT_NAME} 命令列表*\n`,
         `/start — 开始使用 / 查看欢迎信息`,
         `/help — 查看本帮助`,
+        `/new — 清除上下文，开始全新对话`,
         `/chatid — 获取当前聊天的注册 ID`,
         `/status — 查看机器人和聊天状态`,
         `/ping — 快速检查是否在线`,
