@@ -46,7 +46,13 @@ export async function sendOutbound(
   if (!text) return;
 
   // Special commands must be sent raw — a prefix would break the syntax
-  if (text.startsWith('REACT:') || text.startsWith('REPLY_TO:')) {
+  if (
+    text.startsWith('REACT:') ||
+    text.startsWith('REPLY_TO:') ||
+    text.startsWith('SEND_PHOTO:') ||
+    text.startsWith('SEND_DOCUMENT:') ||
+    text.startsWith('SEND_VIDEO:')
+  ) {
     await channel.sendMessage(jid, text);
     return;
   }
