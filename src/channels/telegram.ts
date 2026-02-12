@@ -82,6 +82,7 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const sender = ctx.from?.id.toString() || '';
       const msgId = ctx.message.message_id.toString();
+      const replyToMessageId = ctx.message.reply_to_message?.message_id?.toString();
 
       // Determine chat name
       const chatName =
@@ -131,10 +132,11 @@ export class TelegramChannel implements Channel {
         content,
         timestamp,
         is_from_me: false,
+        reply_to_message_id: replyToMessageId,
       });
 
       logger.info(
-        { chatJid, chatName, sender: senderName },
+        { chatJid, chatName, sender: senderName, replyTo: replyToMessageId },
         'Telegram message stored',
       );
     });
@@ -220,7 +222,42 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = jid.replace(/^tg:/, '');
 
-      // Telegram has a 4096 character limit per message — split if needed
+      // Parse special commands: REPLY_TO:message_id or REACT:message_id:emoji
+      const replyMatch = text.match(/^REPLY_TO:(\d+)\n([\s\S]*)$/);
+      const reactMatch = text.match(/^REACT:(\d+):(.+)$/);
+
+      if (reactMatch) {
+        // Send emoji reaction
+        const [, messageId, emoji] = reactMatch;
+        await this.bot.api.setMessageReaction(numericId, parseInt(messageId), [
+          { type: 'emoji', emoji: emoji.trim() as any },
+        ]);
+        logger.info({ jid, messageId, emoji }, 'Telegram reaction sent');
+        return;
+      }
+
+      if (replyMatch) {
+        // Send as reply
+        const [, replyToMessageId, messageText] = replyMatch;
+        const MAX_LENGTH = 4096;
+        if (messageText.length <= MAX_LENGTH) {
+          await this.bot.api.sendMessage(numericId, messageText, {
+            reply_parameters: { message_id: parseInt(replyToMessageId) },
+          });
+        } else {
+          // First message as reply, rest as regular messages
+          await this.bot.api.sendMessage(numericId, messageText.slice(0, MAX_LENGTH), {
+            reply_parameters: { message_id: parseInt(replyToMessageId) },
+          });
+          for (let i = MAX_LENGTH; i < messageText.length; i += MAX_LENGTH) {
+            await this.bot.api.sendMessage(numericId, messageText.slice(i, i + MAX_LENGTH));
+          }
+        }
+        logger.info({ jid, length: messageText.length, replyTo: replyToMessageId }, 'Telegram reply sent');
+        return;
+      }
+
+      // Regular message (no special commands)
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
         await this.bot.api.sendMessage(numericId, text);
