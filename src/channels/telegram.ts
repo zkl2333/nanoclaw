@@ -114,7 +114,89 @@ export class TelegramChannel implements Channel {
       },
     });
 
-    // Command to get chat ID (useful for registration)
+    // ── 注册 Telegram 命令菜单 ────────────────────────────────────
+    // 让用户在输入框中看到可用命令列表
+    this.bot.api.setMyCommands([
+      { command: 'start', description: '开始使用 / 查看欢迎信息' },
+      { command: 'help', description: '查看帮助和可用命令' },
+      { command: 'chatid', description: '获取当前聊天的注册 ID' },
+      { command: 'status', description: '查看机器人和聊天状态' },
+      { command: 'ping', description: '检查机器人是否在线' },
+    ]).catch((err) => {
+      logger.warn({ err }, 'Failed to set bot commands menu');
+    });
+
+    // ── /start ─ 欢迎 + 深度链接 ───────────────────────────────────
+    this.bot.command('start', (ctx) => {
+      const payload = ctx.match; // 深度链接参数 (t.me/bot?start=payload)
+      const chatType = ctx.chat.type;
+      const firstName = ctx.from?.first_name || '';
+
+      if (payload) {
+        // 处理深度链接 payload
+        logger.info(
+          { payload, chatId: ctx.chat.id, from: firstName },
+          'Deep link start',
+        );
+        ctx.reply(
+          `你好 ${firstName}！你通过链接参数 \`${payload}\` 启动了 ${ASSISTANT_NAME}。\n\n` +
+          `发送 /help 查看可用命令。`,
+          { parse_mode: 'Markdown' },
+        );
+        return;
+      }
+
+      // 普通 /start — 根据私聊/群组展示不同欢迎信息
+      if (chatType === 'private') {
+        ctx.reply(
+          `你好 ${firstName}！我是 ${ASSISTANT_NAME}。\n\n` +
+          `在私聊中直接发消息即可与我对话。\n` +
+          `在群组中 @${ctx.me?.username || ASSISTANT_NAME} 来呼叫我。\n\n` +
+          `发送 /help 查看所有命令，或 /chatid 获取注册 ID。`,
+        );
+      } else {
+        const chatName = (ctx.chat as any).title || '本群';
+        ctx.reply(
+          `${ASSISTANT_NAME} 已在「${chatName}」中就绪。\n` +
+          `使用 @${ctx.me?.username || ASSISTANT_NAME} 开头发消息即可触发。\n\n` +
+          `发送 /help 查看命令列表。`,
+        );
+      }
+    });
+
+    // ── /help ─ 帮助信息 ───────────────────────────────────────────
+    this.bot.command('help', (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      const isRegistered = !!group;
+
+      const lines = [
+        `*${ASSISTANT_NAME} 命令列表*\n`,
+        `/start — 开始使用 / 查看欢迎信息`,
+        `/help — 查看本帮助`,
+        `/chatid — 获取当前聊天的注册 ID`,
+        `/status — 查看机器人和聊天状态`,
+        `/ping — 快速检查是否在线`,
+        ``,
+        `*如何触发 ${ASSISTANT_NAME}：*`,
+        `• 私聊：直接发送消息`,
+        `• 群组：消息开头带上 @${ctx.me?.username || ASSISTANT_NAME}`,
+        `• 发送图片/文件/语音时在描述中 @${ctx.me?.username || ASSISTANT_NAME}`,
+        ``,
+        `*当前聊天状态：*${isRegistered ? ' ✅ 已注册' : ' ⏳ 未注册'}`,
+      ];
+
+      if (!isRegistered) {
+        lines.push(
+          ``,
+          `_此聊天尚未注册。发送 /chatid 获取 ID，然后在主群中告知 ${ASSISTANT_NAME} 进行注册。_`,
+        );
+      }
+
+      ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+    });
+
+    // ── /chatid ─ 获取聊天注册 ID ──────────────────────────────────
     this.bot.command('chatid', (ctx) => {
       const chatId = ctx.chat.id;
       const chatType = ctx.chat.type;
@@ -129,9 +211,45 @@ export class TelegramChannel implements Channel {
       );
     });
 
-    // Command to check bot status
+    // ── /status ─ 详细状态信息 ─────────────────────────────────────
+    this.bot.command('status', (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      const chatType = ctx.chat.type;
+      const chatName =
+        chatType === 'private'
+          ? ctx.from?.first_name || 'Private'
+          : (ctx.chat as any).title || 'Unknown';
+
+      const lines = [
+        `*${ASSISTANT_NAME} 状态*\n`,
+        `🤖 机器人: @${ctx.me?.username || '?'}`,
+        `💬 聊天: ${chatName}`,
+        `🆔 Chat ID: \`tg:${ctx.chat.id}\``,
+        `📋 类型: ${chatType}`,
+      ];
+
+      if (group) {
+        lines.push(
+          `✅ 注册状态: 已注册`,
+          `📁 分组: ${group.folder}`,
+          `🏷 名称: ${group.name}`,
+        );
+        if (group.requiresTrigger === false) {
+          lines.push(`⚡ 触发模式: 无需 @，所有消息自动处理`);
+        } else {
+          lines.push(`📢 触发模式: 需要 @${ctx.me?.username || ASSISTANT_NAME}`);
+        }
+      } else {
+        lines.push(`⏳ 注册状态: 未注册`);
+      }
+
+      ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+    });
+
+    // ── /ping ─ 快速在线检查 ──────────────────────────────────────
     this.bot.command('ping', (ctx) => {
-      ctx.reply(`${ASSISTANT_NAME} is online.`);
+      ctx.reply(`${ASSISTANT_NAME} is online. ✓`);
     });
 
     this.bot.on('message:text', async (ctx) => {
