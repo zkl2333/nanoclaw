@@ -146,17 +146,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const prompt = formatMessages(missedMessages);
 
-  // Advance cursor so piping path in startMessageLoop won't re-fetch
-  // these messages. Save old cursor so we can roll back on error.
-  const previousCursor = lastAgentTimestamp[chatJid] || '';
-  lastAgentTimestamp[chatJid] =
-    missedMessages[missedMessages.length - 1].timestamp;
-  saveState();
-
   logger.info(
     { group: group.name, messageCount: missedMessages.length },
     'Processing messages',
   );
+
+  // Track the last message timestamp to advance cursor after successful reply
+  const lastMessageTimestamp = missedMessages[missedMessages.length - 1].timestamp;
 
   // Track idle timer for closing stdin when agent is idle
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -174,7 +170,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (!channel) return true;
 
   await channel.setTyping?.(chatJid, true);
-  let hadError = false;
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -185,29 +180,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
         const formatted = formatOutbound(channel, raw);
-        if (formatted) await channel.sendMessage(chatJid, formatted);
+        if (formatted) {
+          await channel.sendMessage(chatJid, formatted);
+          // Advance cursor immediately after successful message delivery
+          lastAgentTimestamp[chatJid] = lastMessageTimestamp;
+          saveState();
+          logger.debug({ group: group.name }, 'Cursor advanced after successful reply');
+        }
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
-    }
-
-    if (result.status === 'error') {
-      hadError = true;
     }
   });
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
 
-  if (output === 'error' || hadError) {
-    // Roll back cursor so retries can re-process these messages
-    lastAgentTimestamp[chatJid] = previousCursor;
-    saveState();
-    logger.warn({ group: group.name }, 'Agent error, rolled back message cursor for retry');
-    return false;
-  }
-
-  return true;
+  // No rollback needed - cursor only advances on successful delivery
+  return output === 'success';
 }
 
 async function runAgent(
