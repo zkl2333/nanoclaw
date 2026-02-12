@@ -40,6 +40,8 @@ export class TelegramChannel implements Channel {
   private botToken: string;
   /** Active typing indicator intervals, keyed by JID */
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  /** Track current typing state to prevent duplicate calls */
+  private typingState = new Map<string, boolean>();
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -740,6 +742,7 @@ export class TelegramChannel implements Channel {
       clearInterval(interval);
     }
     this.typingIntervals.clear();
+    this.typingState.clear();
 
     if (this.bot) {
       this.bot.stop();
@@ -751,14 +754,32 @@ export class TelegramChannel implements Channel {
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
     if (!this.bot) return;
 
+    // Prevent duplicate calls - check if already in the desired state
+    const currentState = this.typingState.get(jid);
+    if (currentState === isTyping) {
+      logger.debug({ jid, isTyping }, 'setTyping: already in desired state, skipping');
+      return;
+    }
+
+    logger.debug({ jid, isTyping, previousState: currentState, existingIntervals: this.typingIntervals.size }, 'setTyping called');
+
     // Clear any existing interval for this JID first
     const existing = this.typingIntervals.get(jid);
     if (existing) {
       clearInterval(existing);
       this.typingIntervals.delete(jid);
+      logger.debug({ jid }, 'Cleared existing typing interval');
     }
 
-    if (!isTyping) return;
+    // Update state tracking
+    this.typingState.set(jid, isTyping);
+
+    // When stopping typing, just let it expire naturally (Telegram auto-expires after ~5s)
+    // We've already cleared the interval above, so no more typing actions will be sent
+    if (!isTyping) {
+      logger.debug({ jid }, 'Typing stopped (interval cleared, will expire naturally)');
+      return;
+    }
 
     const numericId = jid.replace(/^tg:/, '');
 
@@ -771,5 +792,6 @@ export class TelegramChannel implements Channel {
 
     sendAction();
     this.typingIntervals.set(jid, setInterval(sendAction, 4500));
+    logger.debug({ jid }, 'Typing started (interval registered)');
   }
 }

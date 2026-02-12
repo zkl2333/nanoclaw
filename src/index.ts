@@ -172,22 +172,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   await channel.setTyping?.(chatJid, true);
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      await sendOutbound(channel, chatJid, raw);
-      // Advance cursor immediately after successful message delivery
-      lastAgentTimestamp[chatJid] = lastMessageTimestamp;
-      saveState();
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
-  });
-
-  await channel.setTyping?.(chatJid, false);
-  if (idleTimer) clearTimeout(idleTimer);
+  let output: 'success' | 'error';
+  try {
+    output = await runAgent(group, prompt, chatJid, async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
+        logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
+        await sendOutbound(channel, chatJid, raw);
+        // Advance cursor immediately after successful message delivery
+        lastAgentTimestamp[chatJid] = lastMessageTimestamp;
+        saveState();
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
+      }
+    });
+  } finally {
+    await channel.setTyping?.(chatJid, false);
+    if (idleTimer) clearTimeout(idleTimer);
+  }
 
   // No rollback needed - cursor only advances on successful delivery
   return output === 'success';
